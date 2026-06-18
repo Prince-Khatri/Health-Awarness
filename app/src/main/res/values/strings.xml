@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">medicineTimer</string>
+    <string name="schedule_daily_reminders">Schedule Daily Reminders</string>
+    <string name="test_now">Test Now:</string>
+    <string name="take_breakfast_now">Take Breakfast Now</string>
+    <string name="take_dinner_now">Take Dinner Now</string>
+</resources>
