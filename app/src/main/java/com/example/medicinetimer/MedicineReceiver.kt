@@ -1,5 +1,6 @@
 package com.example.medicinetimer
 
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -18,41 +19,40 @@ class MedicineReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_MEAL_REMINDER = "com.example.medicinetimer.ACTION_MEAL_REMINDER"
+
+        const val RC_DAILY_BREAKFAST = 1001
+        const val RC_DAILY_DINNER = 1002
+        const val RC_NAG_BREAKFAST = 2001
+        const val RC_NAG_DINNER = 2002
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
-        val mealType = intent.getStringExtra("MEAL_TYPE") ?: "MEAL"
+        val mealType = intent.getStringExtra("MEAL_TYPE") ?: "BREAKFAST"
         val isManual = intent.getBooleanExtra("MANUAL_START", false)
 
         if (action == ACTION_MEAL_REMINDER) {
-            // Only drop the request if it's an automated background sweep ticker
+            val prefs = context.getSharedPreferences("MealPrefs", Context.MODE_PRIVATE)
+            val currentStep = prefs.getInt("current_step", 0)
+
+            // If an automatic safety sweep triggers but you already started or completed the cycle, skip it
             if (!isManual && isMealAlreadyStarted(context, mealType)) {
                 return
             }
-            startMealFlow(context, mealType)
+
+            // Core change: If the user hasn't advanced past Step 0 or Step 1, fire notifications and loop
+            if (currentStep <= 1) {
+                showBeforeMealNotification(context, mealType)
+                // Schedule the recursive 10-minute nagging reminder
+                scheduleNagAlarm(context, mealType, 10)
+            }
         }
     }
 
     private fun isMealAlreadyStarted(context: Context, mealType: String): Boolean {
         val prefs = context.getSharedPreferences("MealPrefs", Context.MODE_PRIVATE)
         val today = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
-        val lastStartedDate = prefs.getString("LAST_STARTED_DATE_$mealType", "")
-        return today == lastStartedDate
-    }
-
-    fun startMealFlow(context: Context, mealType: String) {
-        val prefs = context.getSharedPreferences("MealPrefs", Context.MODE_PRIVATE)
-        val today = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
-        prefs.edit().apply {
-            putString("LAST_STARTED_DATE_$mealType", today)
-            putInt("EXTENSION_COUNT_$mealType", 0)
-            apply()
-        }
-
-        updateWidget(context, 1, "Take Before-Med", mealType)
-        showBeforeMealNotification(context, mealType)
-        scheduleCheckDoneAlarm(context, mealType, 30)
+        return today == prefs.getString("LAST_STARTED_DATE_$mealType", "")
     }
 
     private fun showBeforeMealNotification(context: Context, mealType: String) {
@@ -62,37 +62,31 @@ class MedicineReceiver : BroadcastReceiver() {
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle("Meal Alert: $mealType")
-            .setContentText("Please take your medicine BEFORE eating.")
+            .setContentText("Please take your medicine BEFORE eating. Tap the widget to confirm!")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setOngoing(true) // Keeps it visible until you press the button
             .setAutoCancel(true)
 
         try {
-            NotificationManagerCompat.from(context).notify(1, builder.build())
+            val notifyId = if (mealType == "BREAKFAST") 10 else 11
+            NotificationManagerCompat.from(context).notify(notifyId, builder.build())
         } catch (e: SecurityException) {}
     }
 
-    private fun updateWidget(context: Context, step: Int, status: String, mealType: String) {
-        val widgetIntent = Intent(context, MealWidget::class.java).apply {
-            action = MealWidget.ACTION_UPDATE_WIDGET
-            putExtra("STEP", step)
-            putExtra("STATUS", status)
+    private fun scheduleNagAlarm(context: Context, mealType: String, minutes: Int) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, MedicineReceiver::class.java).apply {
+            action = ACTION_MEAL_REMINDER
             putExtra("MEAL_TYPE", mealType)
+            putExtra("MANUAL_START", true)
         }
-        context.sendBroadcast(widgetIntent)
-    }
-
-    private fun scheduleCheckDoneAlarm(context: Context, mealType: String, minutes: Int) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
-        val intent = Intent(context, ActionReceiver::class.java).apply {
-            action = ActionReceiver.ACTION_CHECK_DONE
-            putExtra("MEAL_TYPE", mealType)
-        }
+        val reqCode = if (mealType == "BREAKFAST") RC_NAG_BREAKFAST else RC_NAG_DINNER
         val pendingIntent = PendingIntent.getBroadcast(
-            context, if (mealType == "BREAKFAST") 101 else 102, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            context, reqCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val triggerTime = System.currentTimeMillis() + (minutes.toLong() * 60 * 1000)
-        alarmManager.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
     }
 
     private fun createNotificationChannel(context: Context, channelId: String) {
@@ -102,8 +96,7 @@ class MedicineReceiver : BroadcastReceiver() {
             val channel = NotificationChannel(channelId, name, importance).apply {
                 description = "Loud alarms for medicine timings"
                 enableVibration(true)
-                val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                setSound(alarmSound, AudioAttributes.Builder()
+                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_ALARM)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build())
