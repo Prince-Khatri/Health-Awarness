@@ -28,7 +28,7 @@ class MealWidget : AppWidgetProvider() {
         // =================================================================
         // TIME CONFIGURATION ZONE (Change your intervals easily here)
         // =================================================================
-        private const val IS_DEBUG_MODE = true // Set to false for Production deployment
+        private const val IS_DEBUG_MODE = false // Set to false for Production deployment
 
         // Production Config (Real-world timings)
         private const val PROD_EATING_TIMEOUT_MS = 30L * 60 * 1000  // 30 minutes
@@ -91,15 +91,15 @@ class MealWidget : AppWidgetProvider() {
                 0 -> "START MEAL"
                 1 -> "BEFORE MED TAKEN"
                 2 -> "I'M DONE EATING"
-                3 -> "15m MED (LOCKED)"
-                4 -> "30m MED (LOCKED)"
+                3 -> "CONFIRM 15m MED TAKEN"
+                4 -> "CONFIRM 30m MED TAKEN"
                 else -> "RESET WORKFLOW"
             }
             views.setTextViewText(R.id.btn_widget_action, buttonText)
 
             val btnColor = when(step) {
                 0 -> "#4CAF50"
-                3, 4 -> "#555555" // Visual dull lock color representation
+                3, 4 -> "#E91E63" // Accent pink/red color denoting required medical sign-off
                 else -> "#2196F3"
             }
             views.setInt(R.id.btn_widget_action, "setBackgroundColor", Color.parseColor(btnColor))
@@ -134,9 +134,7 @@ class MealWidget : AppWidgetProvider() {
         when (action) {
             ACTION_WIDGET_CONTROL -> {
                 val step = prefs.getInt(KEY_STEP, 0)
-
-                // Enforce interaction stage lock parameters for 3 & 4
-                if (step == 3 || step == 4) return
+                val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
                 when (step) {
                     0 -> {
@@ -166,8 +164,6 @@ class MealWidget : AppWidgetProvider() {
                     2 -> {
                         cancelAlarmByCode(context, alarmManager, ActionReceiver.RC_CHECK_BREAKFAST, Intent(context, ActionReceiver::class.java))
                         cancelAlarmByCode(context, alarmManager, ActionReceiver.RC_CHECK_DINNER, Intent(context, ActionReceiver::class.java))
-
-                        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                         notificationManager.cancel(2)
 
                         scheduleMedAlarm(context, alarmManager, mealType, MED1_DELAY_MS, 1, ActionReceiver.RC_MED1_BREAKFAST, ActionReceiver.RC_MED1_DINNER)
@@ -175,6 +171,21 @@ class MealWidget : AppWidgetProvider() {
 
                         val readableTime = if (IS_DEBUG_MODE) "${DEBUG_MED1_DELAY_MS / 1000}s" else "15m"
                         updateAllWidgets(context, 3, "Waiting for Med 1 ($readableTime)", mealType)
+                    }
+                    3 -> {
+                        // Unlocks step 3: Clear Med 1 critical alarm notification mapping
+                        val notificationId = if (mealType == "BREAKFAST") 21 else 31
+                        notificationManager.cancel(notificationId)
+
+                        val readableTime = if (IS_DEBUG_MODE) "${DEBUG_MED2_DELAY_MS / 1000}s" else "30m"
+                        updateAllWidgets(context, 4, "Med 1 Confirmed. Waiting for Med 2 ($readableTime)", mealType)
+                    }
+                    4 -> {
+                        // Unlocks step 4: Clear Med 2 critical alarm notification mapping
+                        val notificationId = if (mealType == "BREAKFAST") 22 else 32
+                        notificationManager.cancel(notificationId)
+
+                        updateAllWidgets(context, 5, "Cycle Complete! Tap to Reset", mealType)
                     }
                     else -> {
                         performGlobalReset(context, mealType)

@@ -1,12 +1,15 @@
 package com.example.medicinetimer
 
 import android.app.AlarmManager
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
 import android.media.RingtoneManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 
@@ -36,7 +39,7 @@ class ActionReceiver : BroadcastReceiver() {
             ACTION_START_EATING -> {
                 cancelNagAlarms(context, mealType)
                 context.getSharedPreferences("MealPrefs", Context.MODE_PRIVATE).edit()
-                    .putInt("CURRENT_STEP_$mealType", 2).apply()
+                    .putInt("current_step", 2).apply()
 
                 scheduleNextCheck(context, mealType, 30) // Primary 30 mins Eating Timer
                 updateWidget(context, 2, "Eating $mealType...", mealType)
@@ -95,13 +98,18 @@ class ActionReceiver : BroadcastReceiver() {
         val count = prefs.getInt("EXTENSION_COUNT_$mealType", 0)
 
         val channelId = "medicine_alarm_channel"
+        createNotificationChannel(context, channelId)
+
+        val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("Finish your $mealType!")
+            .setContentTitle("⚠️ Finish your $mealType!")
             .setContentText("Extension: $count/3. Tap widget button to complete.")
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setSound(alarmSound)
+            .setVibrate(longArrayOf(0, 1000, 500, 1000))
             .setOngoing(true)
             .setAutoCancel(false)
 
@@ -128,13 +136,19 @@ class ActionReceiver : BroadcastReceiver() {
         updateWidget(context, step, status, mealType)
 
         val channelId = "medicine_alarm_channel"
+        createNotificationChannel(context, channelId)
+
+        val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("$mealType Medicine Time")
-            .setContentText("Please take your medication ($medIndex/2).")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setAutoCancel(true)
+            .setContentTitle("⚠️ $mealType Medicine Time ($medIndex/2)")
+            .setContentText("Please take your medication immediately.")
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setSound(alarmSound)
+            .setVibrate(longArrayOf(0, 1000, 500, 1000))
+            .setOngoing(true) // Keeps it ringing/visible until they interact
+            .setAutoCancel(false)
 
         try {
             val notificationId = if (mealType == "BREAKFAST") 20 + medIndex else 30 + medIndex
@@ -193,6 +207,26 @@ class ActionReceiver : BroadcastReceiver() {
         )
         val triggerTime = System.currentTimeMillis() + (minutes.toLong() * 60 * 1000)
         alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+    }
+
+    private fun createNotificationChannel(context: Context, channelId: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Medicine & Meal Alarms"
+            val importance = NotificationManager.IMPORTANCE_HIGH
+            val channel = NotificationChannel(channelId, name, importance).apply {
+                description = "CRITICAL: Urgent alarms for medicine timings"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 1000, 500, 1000, 500, 1000)
+
+                val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                setSound(alarmSound, AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM) // Forces sound out of alarm stream even if phone is on vibrate
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build())
+            }
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
     }
 
     private fun updateWidget(context: Context, step: Int, status: String, mealType: String) {

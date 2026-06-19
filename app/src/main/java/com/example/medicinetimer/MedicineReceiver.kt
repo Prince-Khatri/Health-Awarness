@@ -59,14 +59,18 @@ class MedicineReceiver : BroadcastReceiver() {
         val channelId = "medicine_alarm_channel"
         createNotificationChannel(context, channelId)
 
+        val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("Meal Alert: $mealType")
+            .setContentTitle("⚠️ $mealType MEDICINE TIME NOW") // Customized to show meal type
             .setContentText("Please take your medicine BEFORE eating. Tap the widget to confirm!")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setOngoing(true) // Keeps it visible until you press the button
-            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setSound(alarmSound)
+            .setVibrate(longArrayOf(0, 1000, 500, 1000))
+            .setOngoing(true)
+            .setAutoCancel(false)
 
         try {
             val notifyId = if (mealType == "BREAKFAST") 10 else 11
@@ -94,10 +98,13 @@ class MedicineReceiver : BroadcastReceiver() {
             val name = "Medicine & Meal Alarms"
             val importance = NotificationManager.IMPORTANCE_HIGH
             val channel = NotificationChannel(channelId, name, importance).apply {
-                description = "Loud alarms for medicine timings"
+                description = "CRITICAL: Urgent alarms for medicine timings"
                 enableVibration(true)
-                setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM), AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
+                vibrationPattern = longArrayOf(0, 1000, 500, 1000, 500, 1000)
+
+                val alarmSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                setSound(alarmSound, AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM) // Forces sound out of alarm stream even if phone is on vibrate
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .build())
             }

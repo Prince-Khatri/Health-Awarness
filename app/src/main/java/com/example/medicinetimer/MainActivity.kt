@@ -2,6 +2,7 @@ package com.example.medicinetimer
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -33,6 +34,15 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         checkPermissions()
+
+        // Pre-register channel for background reliability
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Medicine & Meal Alarms"
+            val importance = NotificationManager.IMPORTANCE_HIGH
+            val channel = android.app.NotificationChannel("medicine_alarm_channel", name, importance)
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
 
         findViewById<Button>(R.id.btnStart).setOnClickListener {
             scheduleDailySafetyAlarms()
