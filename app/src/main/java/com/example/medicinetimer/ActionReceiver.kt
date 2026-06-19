@@ -49,33 +49,33 @@ class ActionReceiver : BroadcastReceiver() {
     }
 
     private fun handleDone(context: Context, mealType: String) {
-        // Stop eating alarm
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(2)
         cancelCheckDoneAlarm(context, mealType)
 
-        // Schedule post-meal medicines
+        // --- THE FIXED CALCULATIONS ---
+        // Med 1: 15 mins after meal completion
         scheduleAfterMealMedicine(context, mealType, 15, 1)
+
+        // Med 2: 30 mins AFTER Med 1 = 15 + 30 = 45 mins after meal completion
         scheduleAfterMealMedicine(context, mealType, 30, 2)
-        
-        // Reset extensions
+
         context.getSharedPreferences("MealPrefs", Context.MODE_PRIVATE)
             .edit().putInt("EXTENSION_COUNT_$mealType", 0).apply()
 
-        // Update widget to Step 3 (Waiting for 15m med)
-        updateWidget(context, 3, "Food Done ($mealType)", mealType)
+        updateWidget(context, 3, "Waiting for Med 1 (15m)", mealType)
     }
 
     private fun handleExtend(context: Context, mealType: String) {
         val prefs = context.getSharedPreferences("MealPrefs", Context.MODE_PRIVATE)
         val count = prefs.getInt("EXTENSION_COUNT_$mealType", 0)
-        
+
         if (count < 3) {
             prefs.edit().putInt("EXTENSION_COUNT_$mealType", count + 1).apply()
-            
+
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.cancel(2)
-            
+
             scheduleNextCheck(context, mealType, 10)
             updateWidget(context, 2, "Extended (${count + 1}/3)", mealType)
         }
@@ -87,7 +87,7 @@ class ActionReceiver : BroadcastReceiver() {
 
         val channelId = "medicine_alarm_channel"
         val alarmSound: Uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-        
+
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle("Finish your $mealType!")
@@ -102,33 +102,32 @@ class ActionReceiver : BroadcastReceiver() {
             NotificationManagerCompat.from(context).notify(2, builder.build())
         } catch (e: SecurityException) {}
 
-        // Re-schedule if max extensions not reached, or repeat every 5 mins if exceeded
-        if (count < 3) {
-            // Already scheduled in handleExtend if they click extend, 
-            // but if they just let it ring, we should probably keep it ringing or re-trigger.
-        } else {
+        if (count >= 3) {
             scheduleNextCheck(context, mealType, 5)
         }
-        
+
         updateWidget(context, 2, "Are you done?", mealType)
     }
 
     private fun handleAfterMed(context: Context, mealType: String, medIndex: Int) {
+        // Step 3 for first post-meal med, Step 4 for second post-meal med
         val step = if (medIndex == 1) 3 else 4
-        val status = if (medIndex == 1) "15m Med Time" else "30m Med Time"
+        val status = if (medIndex == 1) "Take 15m Med" else "Take 30m Med"
         updateWidget(context, step, status, mealType)
 
         val channelId = "medicine_alarm_channel"
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("Post-Meal Medicine")
-            .setContentText("Take medicine ($medIndex/2) for $mealType.")
+            .setContentTitle("$mealType Medicine Alarm")
+            .setContentText("Time to take your medicine ($medIndex/2).")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
 
         try {
-            NotificationManagerCompat.from(context).notify(20 + medIndex, builder.build())
+            // Unique notification ID per meal + med index pair
+            val notificationId = if (mealType == "BREAKFAST") 20 + medIndex else 30 + medIndex
+            NotificationManagerCompat.from(context).notify(notificationId, builder.build())
         } catch (e: SecurityException) {}
     }
 
@@ -148,8 +147,9 @@ class ActionReceiver : BroadcastReceiver() {
             action = ACTION_CHECK_DONE
             putExtra("MEAL_TYPE", mealType)
         }
+        val reqCode = if (mealType == "BREAKFAST") 201 else 202
         val pendingIntent = PendingIntent.getBroadcast(
-            context, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            context, reqCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         alarmManager.cancel(pendingIntent)
     }
@@ -160,8 +160,9 @@ class ActionReceiver : BroadcastReceiver() {
             action = ACTION_CHECK_DONE
             putExtra("MEAL_TYPE", mealType)
         }
+        val reqCode = if (mealType == "BREAKFAST") 201 else 202
         val pendingIntent = PendingIntent.getBroadcast(
-            context, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            context, reqCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val triggerTime = System.currentTimeMillis() + (minutes.toLong() * 60 * 1000)
         alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
@@ -174,8 +175,10 @@ class ActionReceiver : BroadcastReceiver() {
             putExtra("MEAL_TYPE", mealType)
             putExtra("MED_INDEX", medIndex)
         }
+        // Unique request codes for breakfast med 1/2 vs dinner med 1/2
+        val baseCode = if (mealType == "BREAKFAST") 300 else 400
         val pendingIntent = PendingIntent.getBroadcast(
-            context, 10 + medIndex, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            context, baseCode + medIndex, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val triggerTime = System.currentTimeMillis() + (minutes.toLong() * 60 * 1000)
         alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)

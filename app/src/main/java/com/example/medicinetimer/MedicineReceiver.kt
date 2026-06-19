@@ -23,10 +23,12 @@ class MedicineReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         val mealType = intent.getStringExtra("MEAL_TYPE") ?: "MEAL"
-        
+        val isManual = intent.getBooleanExtra("MANUAL_START", false)
+
         if (action == ACTION_MEAL_REMINDER) {
-            if (isMealAlreadyStarted(context, mealType)) {
-                return 
+            // Only drop the request if it's an automated background sweep ticker
+            if (!isManual && isMealAlreadyStarted(context, mealType)) {
+                return
             }
             startMealFlow(context, mealType)
         }
@@ -87,7 +89,7 @@ class MedicineReceiver : BroadcastReceiver() {
             putExtra("MEAL_TYPE", mealType)
         }
         val pendingIntent = PendingIntent.getBroadcast(
-            context, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            context, if (mealType == "BREAKFAST") 101 else 102, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val triggerTime = System.currentTimeMillis() + (minutes.toLong() * 60 * 1000)
         alarmManager.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
